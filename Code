@@ -1,0 +1,113 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn import preprocessing
+import keras
+import tensorflow as tf
+
+# Load the dataset
+ipl = pd.read_csv('matches.csv')
+ipl.head()
+
+# Dropping certain features
+df = ipl.drop(['date', 'runs', 'wickets', 'overs', 'runs_last_5', 'wickets_last_5', 'mid', 'striker', 'non-striker'], axis=1)
+X = df.drop(['total'], axis=1)
+y = df['total']
+
+# Label Encoding
+from sklearn.preprocessing import LabelEncoder
+
+# Create a LabelEncoder object for each categorical feature
+venue_encoder = LabelEncoder()
+batting_team_encoder = LabelEncoder()
+bowling_team_encoder = LabelEncoder()
+striker_encoder = LabelEncoder()
+bowler_encoder = LabelEncoder()
+
+# Fit and transform the categorical features with label encoding
+X['venue'] = venue_encoder.fit_transform(X['venue'])
+X['bat_team'] = batting_team_encoder.fit_transform(X['bat_team'])
+X['bowl_team'] = bowling_team_encoder.fit_transform(X['bowl_team'])
+X['batsman'] = striker_encoder.fit_transform(X['batsman'])
+X['bowler'] = bowler_encoder.fit_transform(X['bowler'])
+
+# Train test split
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+# Feature scaling
+from sklearn.preprocessing import MinMaxScaler
+scaler = MinMaxScaler()
+
+# Fit the scaler on the training data and transform both training and testing data
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# Define the neural network model
+model = keras.Sequential([
+    keras.layers.Input(shape=(X_train_scaled.shape[1],)),  # Input layer
+    keras.layers.Dense(512, activation='relu'),  # Hidden layer with 512 units and ReLU activation
+    keras.layers.Dense(216, activation='relu'),  # Hidden layer with 216 units and ReLU activation
+    keras.layers.Dense(1, activation='linear')  # Output layer with linear activation for regression
+])
+
+# Compile the model with Huber loss
+huber_loss = tf.keras.losses.Huber(delta=1.0)  # You can adjust the 'delta' parameter as needed
+model.compile(optimizer='adam', loss=huber_loss)  # Use Huber loss for regression
+
+# Train the model
+model.fit(X_train_scaled, y_train, epochs=50, batch_size=64, validation_data=(X_test_scaled, y_test))
+
+# Plot the training history
+model_losses = pd.DataFrame(model.history.history)
+model_losses.plot()
+
+# Make predictions
+predictions = model.predict(X_test_scaled)
+
+# Evaluate the model
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+mae = mean_absolute_error(y_test, predictions)
+print(f'Mean Absolute Error: {mae}')
+mse = mean_squared_error(y_test, predictions)
+print(f'Mean Squared Error: {mse}')
+
+# Create interactive widgets for prediction
+import ipywidgets as widgets
+from IPython.display import display, clear_output
+
+# Initialize the widgets
+venue = widgets.Dropdown(options=df['venue'].unique().tolist(), description='Select Venue:')
+batting_team = widgets.Dropdown(options=df['bat_team'].unique().tolist(), description='Select Batting Team:')
+bowling_team = widgets.Dropdown(options=df['bowl_team'].unique().tolist(), description='Select Bowling Team:')
+striker = widgets.Dropdown(options=df['batsman'].unique().tolist(), description='Select Striker:')
+bowler = widgets.Dropdown(options=df['bowler'].unique().tolist(), description='Select Bowler:')
+predict_button = widgets.Button(description="Predict Score")
+output = widgets.Output()
+
+def predict_score(b):
+    with output:
+        clear_output()  # Clear the previous output
+        # Encode the selected values
+        encoded_venue = venue_encoder.transform([venue.value])
+        encoded_batting_team = batting_team_encoder.transform([batting_team.value])
+        encoded_bowling_team = bowling_team_encoder.transform([bowling_team.value])
+        encoded_striker = striker_encoder.transform([striker.value])
+        encoded_bowler = bowler_encoder.transform([bowler.value])
+        
+        # Create the input array for prediction
+        input_data = np.array([encoded_venue, encoded_batting_team, encoded_bowling_team, encoded_striker, encoded_bowler])
+        input_data = input_data.reshape(1, -1)
+        input_data = scaler.transform(input_data)
+        
+        # Predict the score
+        predicted_score = model.predict(input_data)
+        predicted_score = int(predicted_score[0,0])
+        print(f'Predicted Score: {predicted_score}')
+
+# Bind the button click event to the prediction function
+predict_button.on_click(predict_score)
+
+# Display the widgets
+display(venue, batting_team, bowling_team, striker, bowler, predict_button, output)
